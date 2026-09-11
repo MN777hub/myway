@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12151c">
+<title>MyWay – Fahrer</title>
+<meta name="description" content="Fahrer-Ansicht: Aufträge annehmen, Fahrt abwickeln, Verdienst sehen.">
+
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="fahrer-seite">
+
+<div id="karte" role="application" aria-label="Karte"></div>
+
+<header class="kopf">
+  <div class="marke">
+    <svg class="marke-zeichen" viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M4 24 L12 8 L16 16 L20 8 L28 24" fill="none" stroke="currentColor"
+            stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <span class="marke-name">MyWay</span>
+    <span class="marke-zusatz">Fahrer</span>
+  </div>
+  <button class="abmelden-knopf" id="abmeldenKnopf" hidden>Abmelden</button>
+</header>
+
+<main class="blatt" id="blatt">
+  <div class="blatt-griff" aria-hidden="true"></div>
+
+  <!-- Zugang -->
+  <section class="schritt" id="schritt-zugang" aria-labelledby="titel-zugang">
+    <h1 class="titel" id="titel-zugang">Fahrer-Zugang</h1>
+    <p class="hinweis-text">Gib den Code ein, den du von MyWay bekommen hast.</p>
+    <form class="zugang-form" id="zugangForm">
+      <label class="feld-etikett" for="codeFeld">Dein Zugangscode</label>
+      <input type="text" id="codeFeld" class="code-feld" placeholder="WIEN-0000"
+             autocomplete="off" autocapitalize="characters" spellcheck="false"
+             inputmode="text" aria-describedby="codeFehler">
+      <p class="hinweis-fehler" id="codeFehler" hidden></p>
+      <button type="submit" class="haupt-knopf">Anmelden</button>
+    </form>
+    <p class="quelle-text">
+      Noch kein Code? Fahren darf bei MyWay nur, wer einen gültigen Taxischein hat.
+      Melde dich bei uns, dann prüfen wir das gemeinsam.
+    </p>
+  </section>
+
+  <!-- Bereit: Aufträge -->
+  <section class="schritt" id="schritt-bereit" hidden aria-labelledby="titel-bereit">
+    <div class="fahrer-kopf">
+      <div>
+        <h1 class="titel" id="titel-bereit">Hallo <span id="fahrerName">–</span></h1>
+        <p class="strecke-zeile" id="fahrerAuto">–</p>
+      </div>
+      <button class="verfuegbar-schalter" id="verfuegbarSchalter"
+              role="switch" aria-checked="false">
+        <span class="schalter-lampe" aria-hidden="true"></span>
+        <span class="schalter-text" id="schalterText">Nicht verfügbar</span>
+      </button>
+    </div>
+
+    <div class="verdienst-zeile" id="verdienstZeile">
+      <div class="verdienst-teil">
+        <span class="verdienst-wert" id="wertFahrten">0</span>
+        <span class="verdienst-label" id="labelFahrten">Fahrten heute</span>
+      </div>
+      <div class="verdienst-teil">
+        <span class="verdienst-wert" id="wertVerdienst">€ 0,00</span>
+        <span class="verdienst-label">Verdient</span>
+      </div>
+      <div class="verdienst-teil">
+        <span class="verdienst-wert hervor" id="wertGespart">€ 0,00</span>
+        <span class="verdienst-label">Mehr als bei Uber</span>
+      </div>
+    </div>
+
+    <h2 class="unter-titel">Anfragen</h2>
+    <ul class="auftraege" id="auftraege"></ul>
+  </section>
+
+  <!-- Laufende Fahrt -->
+  <section class="schritt" id="schritt-fahrt" hidden aria-labelledby="titel-fahrt">
+    <div class="fahrt-kopf">
+      <span class="zustand-marke" id="zustandMarke">Angenommen</span>
+      <span class="fahrt-nummer" id="fahrtNummer">–</span>
+    </div>
+    <h1 class="titel" id="titel-fahrt">Deine Fahrt</h1>
+
+    <div class="strecke-block">
+      <div class="strecke-punkt">
+        <span class="punkt punkt-start" aria-hidden="true"></span>
+        <div>
+          <span class="strecke-name" id="fahrtStart">–</span>
+          <span class="strecke-ort" id="fahrtStartOrt"></span>
+        </div>
+      </div>
+      <div class="strecke-strich" aria-hidden="true"></div>
+      <div class="strecke-punkt">
+        <span class="punkt punkt-ziel" aria-hidden="true"></span>
+        <div>
+          <span class="strecke-name" id="fahrtZiel">–</span>
+          <span class="strecke-ort" id="fahrtZielOrt"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="fahrt-zahlen">
+      <div><span class="zahl-wert" id="fahrtKm">–</span><span class="zahl-label">Strecke</span></div>
+      <div><span class="zahl-wert" id="fahrtPreis">–</span><span class="zahl-label">Fahrpreis</span></div>
+      <div><span class="zahl-wert hervor" id="fahrtAnteil">–</span><span class="zahl-label">Für dich</span></div>
+    </div>
+
+    <a class="haupt-knopf zweit" id="navigationKnopf" href="#" target="_blank" rel="noopener">
+      In Google Maps öffnen
+    </a>
+    <button class="haupt-knopf" id="weiterKnopf">Ich bin unterwegs</button>
+  </section>
+
+  <!-- Abrechnung -->
+  <section class="schritt" id="schritt-abrechnung" hidden aria-labelledby="titel-abrechnung">
+    <div class="fertig-zeichen" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <h1 class="titel" id="titel-abrechnung">Fahrt beendet</h1>
+
+    <div class="preis-karte">
+      <dl class="preis-details" id="abrechnungDetails"></dl>
+    </div>
+
+    <div class="zahlart" id="zahlart">
+      <p class="zahlart-frage">Wie hat der Fahrgast gezahlt?</p>
+      <div class="zahlart-knoepfe">
+        <button class="zahlart-knopf" data-art="karte">Karte</button>
+        <button class="zahlart-knopf" data-art="bar">Bar</button>
+      </div>
+      <p class="zahlart-hinweis" id="zahlartHinweis" hidden></p>
+    </div>
+
+    <button class="haupt-knopf" id="fertigKnopf" disabled>Weiter</button>
+  </section>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module" src="fahrer.js"></script>
+</body>
+</html>
