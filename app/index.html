@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12151c">
+<title>MyWay – Fahrt buchen in Wien</title>
+<meta name="description" content="Fahrt in Wien buchen. Fester Preis nach amtlichem Taxitarif, keine Aufschläge bei Regen oder Stoßzeit.">
+
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- Karte als Hintergrund, die Bedienung liegt darüber -->
+<div id="karte" role="application" aria-label="Karte von Wien"></div>
+
+<!-- Kopfzeile -->
+<header class="kopf">
+  <div class="marke">
+    <svg class="marke-zeichen" viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M4 24 L12 8 L16 16 L20 8 L28 24" fill="none" stroke="currentColor"
+            stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <span class="marke-name">MyWay</span>
+  </div>
+  <button class="standort-knopf" id="standortKnopf" aria-label="Meinen Standort verwenden">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm8.94 3A9 9 0 0013 3.06V1h-2v2.06A9 9 0 003.06 11H1v2h2.06A9 9 0 0011 20.94V23h2v-2.06A9 9 0 0020.94 13H23v-2h-2.06zM12 19a7 7 0 110-14 7 7 0 010 14z" fill="currentColor"/></svg>
+  </button>
+</header>
+
+<!-- Bedienfläche unten -->
+<main class="blatt" id="blatt">
+  <div class="blatt-griff" aria-hidden="true"></div>
+
+  <!-- Schritt 1: Wohin -->
+  <section class="schritt" id="schritt-ziel" aria-labelledby="titel-ziel">
+    <h1 class="titel" id="titel-ziel">Wohin soll es gehen?</h1>
+
+    <div class="felder">
+      <div class="feld-reihe">
+        <span class="punkt punkt-start" aria-hidden="true"></span>
+        <input type="text" id="startFeld" class="feld" placeholder="Startadresse"
+               autocomplete="off" aria-label="Startadresse">
+        <button class="feld-loeschen" data-fuer="startFeld" aria-label="Startadresse löschen" hidden>✕</button>
+      </div>
+      <div class="feld-linie" aria-hidden="true"></div>
+      <div class="feld-reihe">
+        <span class="punkt punkt-ziel" aria-hidden="true"></span>
+        <input type="text" id="zielFeld" class="feld" placeholder="Wohin?"
+               autocomplete="off" aria-label="Zieladresse">
+        <button class="feld-loeschen" data-fuer="zielFeld" aria-label="Zieladresse löschen" hidden>✕</button>
+      </div>
+    </div>
+
+    <ul class="vorschlaege" id="vorschlaege" role="listbox" aria-label="Adressvorschläge" hidden></ul>
+
+    <div class="schnellziele" id="schnellziele">
+      <button class="schnellziel" data-ziel="Flughafen Wien Schwechat">Flughafen</button>
+      <button class="schnellziel" data-ziel="Hauptbahnhof Wien">Hauptbahnhof</button>
+      <button class="schnellziel" data-ziel="Stephansplatz Wien">Stephansplatz</button>
+    </div>
+  </section>
+
+  <!-- Schritt 2: Preis und Buchung -->
+  <section class="schritt" id="schritt-preis" hidden aria-labelledby="titel-preis">
+    <button class="zurueck" id="zurueckKnopf">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Ändern
+    </button>
+
+    <div class="strecke-info">
+      <h2 class="titel" id="titel-preis">Ihre Fahrt</h2>
+      <p class="strecke-zeile" id="streckeZeile"></p>
+    </div>
+
+    <div class="preis-karte">
+      <div class="preis-haupt">
+        <span class="preis-label">Festpreis</span>
+        <strong class="preis-wert" id="preisWert">–</strong>
+      </div>
+      <button class="preis-aufklappen" id="preisAufklappen" aria-expanded="false" aria-controls="preisDetails">
+        Wie kommt der Preis zustande?
+      </button>
+      <dl class="preis-details" id="preisDetails" hidden></dl>
+    </div>
+
+    <div class="zusage">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Dieser Preis gilt. Keine Aufschläge bei Regen oder Stoßzeit.</span>
+    </div>
+
+    <button class="haupt-knopf" id="buchenKnopf">Fahrt anfragen</button>
+  </section>
+
+  <!-- Schritt 3: Bestätigung -->
+  <section class="schritt" id="schritt-fertig" hidden aria-labelledby="titel-fertig">
+    <div class="fertig-zeichen" id="fertigZeichen" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <h2 class="titel" id="titel-fertig">Anfrage ist raus</h2>
+    <div class="fertig-text" id="fertigText"></div>
+    <button class="haupt-knopf zweit" id="neueFahrtKnopf">Neue Fahrt</button>
+  </section>
+
+  <p class="seiten-wechsel">Du bist Fahrer? <a href="fahrer.html">Zur Fahrer-Ansicht</a></p>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,514 @@
+/* ============================================================
+   MyWay – Fahrgast-Ansicht
+   Haltung: Die Karte ist der Inhalt, die Bedienung tritt zurück.
+   Keine Verläufe, keine Deko-Schatten. Ruhig und klar.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&display=swap');
+
+:root{
+  /* Grundflächen */
+  --grund:#12151c;
+  --flaeche:#1b2029;
+  --flaeche-hoch:#242a36;
+  --linie:rgba(255,255,255,.10);
+  --linie-stark:rgba(255,255,255,.18);
+
+  /* Marke: Bernstein – warm, erinnert an Taxi ohne Klischee.
+     Bewusst nicht Uber-Schwarz und nicht Bolt-Grün. */
+  --marke:#ffb020;
+  --marke-hell:#ffc043;
+  --marke-tief:#e8951a;
+
+  /* Text – alle Werte über 4,5:1 geprüft */
+  --text:#ffffff;          /* 18,3:1 */
+  --text-2:#e8eaed;        /* 15,2:1 */
+  --text-leise:#b4b9c4;    /* 9,3:1  */
+  --text-sehr-leise:#8b92a0; /* 5,8:1 */
+
+  --gut:#34c759;
+  --fehler:#ff453a;
+
+  /* 4/8-Raster */
+  --a1:4px; --a2:8px; --a3:12px; --a4:16px;
+  --a5:24px; --a6:32px; --a7:48px;
+
+  --rund:16px;
+  --rund-klein:12px;
+  --schrift:'Lexend',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --weich:cubic-bezier(.22,.68,.36,1);
+}
+
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+/* muss nach den display-Regeln greifen, sonst zeigt display:grid/flex trotz hidden */
+[hidden]{display:none!important}
+html,body{height:100%;overscroll-behavior:none}
+body{
+  background:var(--grund);color:var(--text);
+  font-family:var(--schrift);font-size:16px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+button,input{font-family:inherit;font-size:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--marke);outline-offset:2px}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
+}
+
+/* ---------- Karte ---------- */
+#karte{position:fixed;inset:0;z-index:0;background:var(--grund)}
+.leaflet-container{background:var(--grund)!important;font-family:var(--schrift)!important}
+/* Helle OSM-Kacheln werden hier zur Dunkelkarte: invertieren, Farbton
+   zurückdrehen, dann beruhigen. Spart einen kostenpflichtigen Kachel-Dienst. */
+.leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.82) contrast(.92) saturate(.55)}
+.leaflet-control-attribution{
+  background:rgba(18,21,28,.82)!important;color:var(--text-sehr-leise)!important;
+  font-size:10px!important;padding:2px 6px!important;
+}
+.leaflet-control-attribution a{color:var(--text-leise)!important}
+.leaflet-control-zoom{display:none}
+
+/* ---------- Kopfzeile ---------- */
+.kopf{
+  position:fixed;top:0;left:0;right:0;z-index:20;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:calc(var(--a4) + env(safe-area-inset-top)) var(--a4) var(--a4);
+  background:linear-gradient(to bottom,rgba(18,21,28,.92),rgba(18,21,28,0));
+  pointer-events:none;
+}
+.marke{display:flex;align-items:center;gap:var(--a2);pointer-events:auto}
+.marke-zeichen{width:26px;height:26px;color:var(--marke)}
+.marke-name{font-size:1.2rem;font-weight:600;letter-spacing:-.01em}
+
+.standort-knopf{
+  width:44px;height:44px;border-radius:50%;border:1px solid var(--linie);
+  background:var(--flaeche);color:var(--text-2);cursor:pointer;pointer-events:auto;
+  display:flex;align-items:center;justify-content:center;
+  transition:background .15s var(--weich),color .15s var(--weich);
+}
+.standort-knopf svg{width:20px;height:20px}
+.standort-knopf:hover,.standort-knopf:focus-visible{background:var(--flaeche-hoch);color:var(--marke)}
+.standort-knopf.aktiv{color:var(--marke);border-color:var(--marke)}
+
+/* ---------- Bedienfläche unten ---------- */
+.blatt{
+  position:fixed;left:0;right:0;bottom:0;z-index:10;
+  background:var(--flaeche);
+  border-radius:var(--rund) var(--rund) 0 0;
+  border-top:1px solid var(--linie);
+  padding:var(--a2) var(--a5) calc(var(--a5) + env(safe-area-inset-bottom));
+  max-height:88vh;overflow-y:auto;
+}
+@media (min-width:720px){
+  .blatt{
+    left:var(--a5);bottom:var(--a5);right:auto;width:400px;
+    border-radius:var(--rund);border:1px solid var(--linie);
+    max-height:calc(100vh - 2 * var(--a5) - 72px);
+  }
+  /* Ohne Verlauf säße der Schriftzug direkt auf den Kartenbeschriftungen */
+  .kopf{background:linear-gradient(to bottom,rgba(18,21,28,.75),rgba(18,21,28,0))}
+}
+
+.blatt-griff{
+  width:36px;height:4px;border-radius:2px;background:var(--linie-stark);
+  margin:var(--a2) auto var(--a5);
+}
+@media (min-width:720px){.blatt-griff{display:none}}
+
+.schritt{animation:auftauchen .28s var(--weich)}
+@keyframes auftauchen{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+.titel{font-size:1.45rem;font-weight:600;letter-spacing:-.02em;margin-bottom:var(--a5)}
+
+/* ---------- Adressfelder ---------- */
+.felder{
+  position:relative;background:var(--grund);
+  border:1px solid var(--linie);border-radius:var(--rund-klein);
+  padding:var(--a1) 0;
+}
+.feld-reihe{display:flex;align-items:center;gap:var(--a3);padding:0 var(--a4)}
+.feld{
+  flex:1;min-height:52px;background:none;border:none;
+  font-size:1rem;font-weight:400;
+}
+.feld::placeholder{color:var(--text-sehr-leise)}
+.feld:focus{outline:none}
+.feld-linie{height:1px;background:var(--linie);margin-left:calc(var(--a4) + 10px + var(--a3))}
+
+.punkt{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.punkt-start{background:var(--text-leise)}
+.punkt-ziel{background:var(--marke)}
+
+.feld-loeschen{
+  width:28px;height:28px;border-radius:50%;border:none;
+  background:var(--flaeche-hoch);color:var(--text-leise);
+  cursor:pointer;font-size:.8rem;line-height:1;flex-shrink:0;
+}
+.feld-loeschen:hover{color:var(--text)}
+
+/* ---------- Vorschläge ---------- */
+.vorschlaege{
+  list-style:none;margin-top:var(--a3);
+  border:1px solid var(--linie);border-radius:var(--rund-klein);
+  overflow:hidden;background:var(--grund);
+}
+.vorschlag{
+  display:flex;align-items:flex-start;gap:var(--a3);
+  padding:var(--a3) var(--a4);min-height:56px;cursor:pointer;
+  border-bottom:1px solid var(--linie);
+  transition:background .12s var(--weich);
+}
+.vorschlag:last-child{border-bottom:none}
+.vorschlag:hover,.vorschlag[aria-selected="true"]{background:var(--flaeche-hoch)}
+.vorschlag-zeichen{color:var(--text-sehr-leise);flex-shrink:0;margin-top:3px}
+.vorschlag-zeichen svg{width:18px;height:18px;display:block}
+.vorschlag-text{display:flex;flex-direction:column;min-width:0}
+.vorschlag-name{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vorschlag-ort{font-size:.85rem;color:var(--text-sehr-leise);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ---------- Schnellziele ---------- */
+.schnellziele{display:flex;gap:var(--a2);margin-top:var(--a5);flex-wrap:wrap}
+.schnellziel{
+  min-height:44px;padding:0 var(--a4);
+  background:var(--flaeche-hoch);border:1px solid var(--linie);
+  border-radius:999px;color:var(--text-2);font-size:.92rem;font-weight:500;
+  cursor:pointer;transition:all .15s var(--weich);
+}
+.schnellziel:hover{border-color:var(--marke);color:var(--marke)}
+
+/* ---------- Preisansicht ---------- */
+.zurueck{
+  display:inline-flex;align-items:center;gap:var(--a1);
+  min-height:44px;padding:0 var(--a2) 0 0;margin-bottom:var(--a2);
+  background:none;border:none;color:var(--text-leise);
+  font-size:.95rem;font-weight:500;cursor:pointer;
+}
+.zurueck svg{width:18px;height:18px}
+.zurueck:hover{color:var(--text)}
+
+.strecke-info{margin-bottom:var(--a5)}
+.strecke-info .titel{margin-bottom:var(--a1)}
+.strecke-zeile{color:var(--text-leise);font-size:.95rem}
+
+.preis-karte{
+  background:var(--grund);border:1px solid var(--linie);
+  border-radius:var(--rund-klein);padding:var(--a5);margin-bottom:var(--a4);
+}
+.preis-haupt{display:flex;align-items:baseline;justify-content:space-between;gap:var(--a4)}
+.preis-label{color:var(--text-leise);font-size:.95rem}
+.preis-wert{
+  font-size:2.3rem;font-weight:700;letter-spacing:-.03em;color:var(--marke);
+  font-variant-numeric:tabular-nums;
+}
+.preis-aufklappen{
+  margin-top:var(--a4);padding:0;min-height:44px;
+  background:none;border:none;color:var(--text-leise);
+  font-size:.9rem;text-decoration:underline;text-underline-offset:3px;cursor:pointer;
+}
+.preis-aufklappen:hover{color:var(--text-2)}
+.preis-details{
+  margin-top:var(--a3);padding-top:var(--a4);border-top:1px solid var(--linie);
+  display:grid;grid-template-columns:1fr auto;gap:var(--a2) var(--a4);
+  font-size:.92rem;
+}
+.preis-details dt{color:var(--text-leise)}
+.preis-details dd{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
+.preis-details .quelle{
+  grid-column:1/-1;margin-top:var(--a2);padding-top:var(--a3);
+  border-top:1px solid var(--linie);
+  color:var(--text-sehr-leise);font-size:.82rem;text-align:left;
+}
+
+.zusage{
+  display:flex;align-items:flex-start;gap:var(--a3);
+  padding:var(--a4);margin-bottom:var(--a5);
+  background:rgba(52,199,89,.08);border:1px solid rgba(52,199,89,.25);
+  border-radius:var(--rund-klein);
+  font-size:.92rem;color:var(--text-2);
+}
+.zusage svg{width:20px;height:20px;color:var(--gut);flex-shrink:0;margin-top:1px}
+
+/* ---------- Knöpfe ---------- */
+.haupt-knopf{
+  width:100%;min-height:56px;border:none;border-radius:var(--rund-klein);
+  background:var(--marke);color:var(--grund);
+  font-size:1.05rem;font-weight:600;cursor:pointer;
+  transition:background .15s var(--weich),transform .1s var(--weich);
+}
+.haupt-knopf:hover{background:var(--marke-hell)}
+.haupt-knopf:active{transform:scale(.985)}
+.haupt-knopf:disabled{opacity:.45;cursor:not-allowed}
+.haupt-knopf.zweit{background:var(--flaeche-hoch);color:var(--text);border:1px solid var(--linie)}
+.haupt-knopf.zweit:hover{background:var(--linie)}
+
+/* ---------- Bestätigung ---------- */
+.fertig-zeichen{
+  width:64px;height:64px;border-radius:50%;margin:var(--a2) auto var(--a5);
+  background:rgba(52,199,89,.12);border:2px solid var(--gut);color:var(--gut);
+  display:flex;align-items:center;justify-content:center;
+}
+.fertig-zeichen svg{width:30px;height:30px}
+/* Solange niemand angenommen hat, wäre ein grüner Haken gelogen:
+   dann dreht hier ein Ring in Bernstein. */
+.fertig-zeichen.sucht{
+  background:rgba(255,176,32,.1);border-color:transparent;color:transparent;
+  border-top-color:var(--marke);border-right-color:var(--marke);
+  animation:drehen 1s linear infinite;
+}
+.fertig-zeichen.sucht svg{display:none}
+#schritt-fertig{text-align:center}
+#schritt-fertig .titel{margin-bottom:var(--a3)}
+.fertig-text{color:var(--text-leise);margin-bottom:var(--a6);font-size:.98rem}
+
+/* ---------- Kartenmarkierungen ---------- */
+.markierung{
+  width:14px;height:14px;border-radius:50%;
+  border:3px solid var(--grund);box-shadow:0 0 0 1px rgba(255,255,255,.25);
+}
+.markierung-start{background:var(--text)}
+.markierung-ziel{background:var(--marke)}
+
+.lade-hinweis{
+  display:flex;align-items:center;gap:var(--a3);
+  padding:var(--a4);color:var(--text-leise);font-size:.95rem;
+}
+.dreher{
+  width:18px;height:18px;border:2px solid var(--linie-stark);
+  border-top-color:var(--marke);border-radius:50%;
+  animation:drehen .7s linear infinite;
+}
+@keyframes drehen{to{transform:rotate(360deg)}}
+
+.hinweis-fehler{
+  padding:var(--a3) var(--a4);margin-top:var(--a3);
+  background:rgba(255,69,58,.1);border:1px solid rgba(255,69,58,.3);
+  border-radius:var(--rund-klein);color:#ff9a92;font-size:.9rem;
+}
+
+/* ============================================================
+   Fahrer-Ansicht
+   Gleiche Mittel wie die Fahrgast-App – es muss eine App bleiben.
+   ============================================================ */
+
+.marke-zusatz{
+  padding:2px var(--a2);margin-left:var(--a1);
+  background:var(--marke);color:var(--grund);
+  border-radius:var(--a1);font-size:.72rem;font-weight:600;letter-spacing:.03em;
+}
+.abmelden-knopf{
+  min-height:44px;padding:0 var(--a4);pointer-events:auto;
+  background:var(--flaeche);border:1px solid var(--linie);border-radius:999px;
+  color:var(--text-leise);font-size:.9rem;font-weight:500;cursor:pointer;
+}
+.abmelden-knopf:hover{color:var(--text);border-color:var(--linie-stark)}
+
+.hinweis-text{color:var(--text-leise);font-size:.95rem;margin:calc(-1 * var(--a3)) 0 var(--a5)}
+.quelle-text{
+  margin-top:var(--a5);padding-top:var(--a4);border-top:1px solid var(--linie);
+  color:var(--text-sehr-leise);font-size:.85rem;line-height:1.55;
+}
+.unter-titel{
+  font-size:.8rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text-sehr-leise);margin:var(--a6) 0 var(--a3);
+}
+
+/* ---------- Zugang ---------- */
+.zugang-form{display:flex;flex-direction:column;gap:var(--a3)}
+.feld-etikett{font-size:.9rem;color:var(--text-leise)}
+.code-feld{
+  width:100%;min-height:60px;padding:0 var(--a4);
+  background:var(--grund);border:1px solid var(--linie);border-radius:var(--rund-klein);
+  font-size:1.3rem;font-weight:600;letter-spacing:.08em;text-align:center;
+  text-transform:uppercase;
+}
+.code-feld::placeholder{color:var(--text-sehr-leise);letter-spacing:.08em}
+.code-feld:focus{outline:none;border-color:var(--marke)}
+
+/* ---------- Kopf mit Verfügbar-Schalter ---------- */
+.fahrer-kopf{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  gap:var(--a4);margin-bottom:var(--a5);
+}
+.fahrer-kopf .titel{margin-bottom:var(--a1);font-size:1.3rem}
+
+.verfuegbar-schalter{
+  display:flex;align-items:center;gap:var(--a2);flex-shrink:0;
+  min-height:44px;padding:0 var(--a4);
+  background:var(--flaeche-hoch);border:1px solid var(--linie);border-radius:999px;
+  color:var(--text-leise);font-size:.88rem;font-weight:500;cursor:pointer;
+  transition:all .18s var(--weich);
+}
+.schalter-lampe{
+  width:9px;height:9px;border-radius:50%;background:var(--text-sehr-leise);
+  transition:background .18s var(--weich),box-shadow .18s var(--weich);
+}
+.verfuegbar-schalter.an{
+  background:rgba(52,199,89,.12);border-color:rgba(52,199,89,.45);color:var(--gut);
+}
+.verfuegbar-schalter.an .schalter-lampe{
+  background:var(--gut);box-shadow:0 0 0 4px rgba(52,199,89,.18);
+}
+
+/* ---------- Verdienst heute ---------- */
+.verdienst-zeile{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:var(--a2);
+  padding:var(--a4);background:var(--grund);
+  border:1px solid var(--linie);border-radius:var(--rund-klein);
+}
+.verdienst-teil{display:flex;flex-direction:column;gap:2px;min-width:0}
+.verdienst-wert{
+  font-size:1.15rem;font-weight:700;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.verdienst-wert.hervor{color:var(--gut)}
+.verdienst-label{font-size:.75rem;color:var(--text-sehr-leise);line-height:1.3}
+
+/* ---------- Auftragsliste ---------- */
+.auftraege{list-style:none;display:flex;flex-direction:column;gap:var(--a3)}
+.leer-hinweis{
+  padding:var(--a5) var(--a4);text-align:center;
+  color:var(--text-sehr-leise);font-size:.92rem;line-height:1.55;
+  border:1px dashed var(--linie);border-radius:var(--rund-klein);
+}
+.auftrag{
+  background:var(--grund);border:1px solid var(--linie);
+  border-radius:var(--rund-klein);padding:var(--a4);
+  animation:auftauchen .28s var(--weich);
+}
+.auftrag-strecke{display:flex;flex-direction:column;gap:var(--a1)}
+.auftrag-zeile{
+  margin-top:var(--a3);color:var(--text-leise);font-size:.88rem;
+  font-variant-numeric:tabular-nums;
+}
+.auftrag-geld{
+  display:flex;align-items:baseline;justify-content:space-between;
+  gap:var(--a3);flex-wrap:wrap;
+  margin:var(--a3) 0 var(--a4);padding-top:var(--a3);
+  border-top:1px solid var(--linie);
+}
+.auftrag-anteil{
+  font-size:1.5rem;font-weight:700;color:var(--marke);
+  letter-spacing:-.02em;font-variant-numeric:tabular-nums;
+}
+.auftrag-anteil-label{margin-left:var(--a2);font-size:.85rem;color:var(--text-leise)}
+.auftrag-vergleich{font-size:.82rem;color:var(--gut);font-weight:500}
+.auftrag .haupt-knopf{min-height:48px;font-size:1rem}
+
+/* ---------- Strecke (Fahrt und Auftrag) ---------- */
+.strecke-block{
+  background:var(--grund);border:1px solid var(--linie);
+  border-radius:var(--rund-klein);padding:var(--a4);margin-bottom:var(--a4);
+}
+.strecke-punkt{display:flex;align-items:flex-start;gap:var(--a3);min-width:0}
+.strecke-punkt .punkt{margin-top:7px}
+.strecke-name{
+  display:block;font-weight:500;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.strecke-ort{display:block;font-size:.82rem;color:var(--text-sehr-leise)}
+.strecke-strich{
+  width:1px;height:20px;background:var(--linie-stark);
+  margin:var(--a1) 0 var(--a1) 4px;
+}
+.strecke-strich.klein{height:12px}
+
+/* ---------- Laufende Fahrt ---------- */
+.fahrt-kopf{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:var(--a3);margin-bottom:var(--a3);
+}
+.zustand-marke{
+  padding:var(--a1) var(--a3);border-radius:999px;
+  background:rgba(255,176,32,.14);border:1px solid rgba(255,176,32,.35);
+  color:var(--marke);font-size:.8rem;font-weight:600;
+}
+.fahrt-nummer{
+  font-size:.78rem;color:var(--text-sehr-leise);font-variant-numeric:tabular-nums;
+}
+#schritt-fahrt .titel{font-size:1.3rem;margin-bottom:var(--a4)}
+
+.fahrt-zahlen{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:var(--a2);
+  margin-bottom:var(--a5);
+}
+.fahrt-zahlen > div{
+  display:flex;flex-direction:column;gap:2px;
+  padding:var(--a3);background:var(--grund);
+  border:1px solid var(--linie);border-radius:var(--rund-klein);
+}
+.zahl-wert{
+  font-size:1.05rem;font-weight:700;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.zahl-wert.hervor{color:var(--marke)}
+.zahl-label{font-size:.74rem;color:var(--text-sehr-leise)}
+
+#navigationKnopf{
+  display:flex;align-items:center;justify-content:center;
+  margin-bottom:var(--a3);text-decoration:none;
+}
+
+/* ---------- Abrechnung ---------- */
+#schritt-abrechnung{text-align:center}
+#schritt-abrechnung .titel{margin-bottom:var(--a5)}
+#schritt-abrechnung .preis-karte{text-align:left}
+#abrechnungDetails{margin-top:0;padding-top:0;border-top:none}
+
+.zahlart{margin-bottom:var(--a5);text-align:left}
+.zahlart-frage{font-size:.92rem;color:var(--text-leise);margin-bottom:var(--a3)}
+.zahlart-knoepfe{display:grid;grid-template-columns:1fr 1fr;gap:var(--a2)}
+.zahlart-knopf{
+  min-height:52px;background:var(--flaeche-hoch);
+  border:1px solid var(--linie);border-radius:var(--rund-klein);
+  color:var(--text-2);font-size:.98rem;font-weight:500;cursor:pointer;
+  transition:all .15s var(--weich);
+}
+.zahlart-knopf:hover{border-color:var(--linie-stark)}
+.zahlart-knopf.gewaehlt{
+  background:rgba(255,176,32,.14);border-color:var(--marke);color:var(--marke);font-weight:600;
+}
+.zahlart-hinweis{
+  margin-top:var(--a3);padding:var(--a3) var(--a4);
+  background:var(--grund);border:1px solid var(--linie);
+  border-radius:var(--rund-klein);
+  color:var(--text-leise);font-size:.88rem;line-height:1.55;
+}
+
+/* ---------- Verweis auf die andere Ansicht ---------- */
+.seiten-wechsel{
+  margin-top:var(--a5);padding-top:var(--a4);border-top:1px solid var(--linie);
+  text-align:center;font-size:.85rem;color:var(--text-sehr-leise);
+}
+.seiten-wechsel a{color:var(--text-leise);text-decoration:underline;text-underline-offset:3px}
+.seiten-wechsel a:hover{color:var(--marke)}
+
+/* ---------- Fahrgast: Fahrer gefunden ---------- */
+.fahrer-karte{
+  display:flex;align-items:center;gap:var(--a4);
+  padding:var(--a4);margin-bottom:var(--a4);
+  background:var(--grund);border:1px solid var(--linie);
+  border-radius:var(--rund-klein);text-align:left;
+}
+.fahrer-bild{
+  width:48px;height:48px;border-radius:50%;flex-shrink:0;
+  background:var(--flaeche-hoch);color:var(--marke);
+  display:flex;align-items:center;justify-content:center;
+  font-size:1.2rem;font-weight:700;
+}
+.fahrer-daten{min-width:0}
+.fahrer-namenszeile{display:block;font-weight:600}
+.fahrer-autozeile{
+  display:block;font-size:.85rem;color:var(--text-leise);
+  font-variant-numeric:tabular-nums;
+}
+.fahrgast-zustand{
+  padding:var(--a3) var(--a4);margin-bottom:var(--a4);
+  background:rgba(255,176,32,.1);border:1px solid rgba(255,176,32,.3);
+  border-radius:var(--rund-klein);
+  color:var(--marke);font-size:.92rem;font-weight:500;
+}
+.fahrgast-zustand.fertig{
+  background:rgba(52,199,89,.1);border-color:rgba(52,199,89,.3);color:var(--gut);
+}
