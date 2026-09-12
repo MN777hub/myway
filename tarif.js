@@ -108,3 +108,8 @@ function runde(n) {
 export function formatEuro(n) {
   return n.toLocaleString('de-AT', { style: 'currency', currency: 'EUR' });
 }
+
+/** Kilometer österreichisch: 4,7 – nicht 4.7 */
+export function formatKm(n) {
+  return n.toLocaleString('de-AT', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
