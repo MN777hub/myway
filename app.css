@@ -139,15 +139,19 @@ button,input{font-family:inherit;font-size:inherit;color:inherit}
   border-radius:var(--rund) var(--rund) 0 0;
   border-top:1px solid var(--linie);
   padding:var(--a2) var(--a5) calc(var(--a5) + env(safe-area-inset-bottom));
-  /* Bei 88vh blieb von der Karte ein Streifen übrig, sobald die Preisdetails
-     aufklappten. Der Rest scrollt im Blatt – die Karte bleibt sichtbar. */
-  max-height:74vh;overflow-y:auto;
+  /* Die Höhe setzt blatt.js beim Ziehen. Die Grenze hier ist nur das
+     Dach für den obersten Rastpunkt – darüber bliebe von der Karte nichts. */
+  max-height:90vh;overflow-y:auto;
   overscroll-behavior:contain;
+  touch-action:pan-y;
 }
 @media (min-width:720px){
   .blatt{
     left:var(--a5);bottom:var(--a5);right:auto;width:400px;
     border-radius:var(--rund);border:1px solid var(--linie);
+    /* Am Schreibtisch wird nicht gezogen – die von blatt.js gesetzte
+       Pixelhöhe muss hier wieder weichen. */
+    height:auto!important;
     max-height:calc(100vh - 2 * var(--a5) - 72px);
   }
   /* Ohne Verlauf säße der Schriftzug direkt auf den Kartenbeschriftungen */
@@ -644,6 +648,89 @@ button,input{font-family:inherit;font-size:inherit;color:inherit}
   border-radius:var(--rund-klein);
   color:var(--text-leise);font-size:.88rem;line-height:1.55;
 }
+
+/* ---------- Das Auto des Fahrers auf der Karte ---------- */
+.auto-marke{
+  width:34px;height:34px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--marke);color:var(--grund);
+  box-shadow:0 2px 10px rgba(0,0,0,.45), 0 0 0 3px rgba(255,176,32,.22);
+  transition:rotate .6s var(--weich);
+}
+.auto-marke svg{width:17px;height:17px}
+@media (prefers-reduced-motion:reduce){.auto-marke{transition:none}}
+
+/* ---------- Mitlaufende Ankunft ---------- */
+.ankunft-live{
+  margin-bottom:var(--a4);font-size:var(--t-unter);
+  font-family:var(--schrift-display);font-stretch:112%;font-weight:700;
+  color:var(--text);
+}
+.ankunft-live strong{color:var(--marke);font-variant-numeric:tabular-nums}
+
+/* ---------- Was bleibt beim Fahrer ----------
+   Die Zeile, die Uber nicht schreiben würde. Ruhig gesetzt: als Reklame
+   aufgemacht würde sie unglaubwürdig. */
+.anteil-zeile{
+  margin-bottom:var(--a3);padding:var(--a3) var(--a4);
+  background:var(--grund);border:1px solid var(--linie);
+  border-radius:var(--rund-klein);
+  font-size:var(--t-klein);color:var(--text-leise);line-height:1.55;
+}
+.anteil-zeile strong{color:var(--marke);font-weight:700;font-variant-numeric:tabular-nums}
+
+/* ---------- Zahlungsmittel beim Fahrgast ---------- */
+.zahlwahl{border:none;padding:0;margin-bottom:var(--a5)}
+.zahlwahl-frage{
+  padding:0;margin-bottom:var(--a3);
+  font-size:var(--t-klein);color:var(--text-leise);
+}
+/* Wunsch des Fahrgasts in der Fahrer-Abrechnung */
+.zahlart-knopf.vorschlag{border-color:var(--linie-stark)}
+
+/* ---------- Anrufen und Teilen ---------- */
+.fahrt-aktionen{display:flex;gap:var(--a2);margin-bottom:var(--a5)}
+.aktion-knopf{
+  flex:1;display:flex;align-items:center;justify-content:center;gap:var(--a2);
+  min-height:48px;padding:0 var(--a3);
+  background:var(--flaeche-hoch);border:1px solid var(--linie);
+  border-radius:var(--rund-klein);color:var(--text-2);
+  font-size:var(--t-klein);font-weight:600;font-family:inherit;
+  text-decoration:none;cursor:pointer;
+  transition:border-color .15s var(--weich),color .15s var(--weich);
+}
+.aktion-knopf svg{width:17px;height:17px;flex-shrink:0}
+.aktion-knopf:hover{border-color:var(--linie-stark);color:var(--text)}
+.aktion-knopf.erledigt{border-color:var(--gut);color:var(--gut)}
+
+/* ---------- Bewertung ---------- */
+.bewertung{margin-bottom:var(--a5)}
+.bewertung-frage{margin-bottom:var(--a3);font-size:var(--t-klein);color:var(--text-leise)}
+.sterne{display:flex;justify-content:center;gap:var(--a2)}
+.stern{
+  width:44px;height:44px;display:flex;align-items:center;justify-content:center;
+  background:none;border:none;color:var(--text-sehr-leise);cursor:pointer;
+  transition:color .15s var(--weich),scale .15s var(--weich);
+}
+.stern svg{width:28px;height:28px}
+.stern:hover{scale:1.1}
+.stern.voll{color:var(--marke)}
+.stern.voll svg path{fill:currentColor}
+.bewertung-dank{margin-top:var(--a3);font-size:var(--t-klein);color:var(--gut)}
+
+/* ---------- Gemerkte Orte ---------- */
+.schnellziel.merkbar{display:inline-flex;align-items:center;gap:var(--a2)}
+.schnellziel.merkbar svg{width:15px;height:15px;flex-shrink:0}
+/* Ungesetzt gestrichelt: der Chip sieht dann nach Platzhalter aus und
+   nicht nach einem Ziel, das nur nicht funktioniert. */
+.schnellziel.merkbar:not(.gesetzt){
+  border-style:dashed;color:var(--text-sehr-leise);
+}
+.schnellziel.merkbar.gesetzt{border-color:var(--linie-stark);color:var(--text-2)}
+.schnellziel.merkbar.gesetzt svg{color:var(--marke)}
+
+/* ---------- Geteilte Ansicht ---------- */
+.kopf.nur-marke .standort-knopf{display:none}
 
 /* ---------- Verweis auf die andere Ansicht ---------- */
 .seiten-wechsel{
