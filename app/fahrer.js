@@ -5,14 +5,14 @@
 
 import { berechneFahrpreis, aufteilung, vergleich, formatEuro, formatKm } from './tarif.js';
 import { entfernung, fahrzeitMinuten } from './geo.js';
+import { blattEinrichten } from './blatt.js';
 import {
-  ZUSTAND, ABLAUF, fahrerPruefen, beiAenderung,
-  offeneAuftraege, auftragAnnehmen, statusSetzen,
+  ZUSTAND, ABLAUF, fahrerAnmelden, meinFahrer, beiAenderung,
+  offeneAuftraege, auftragAnnehmen, statusSetzen, positionSenden,
   laufendeFahrt, fahrtenHeute, auftragLesen
 } from './daten.js';
 
 const WIEN = [48.2082, 16.3738];
-const GEMERKT = 'myway_fahrer';
 
 const zustand = {
   fahrer: null,
@@ -69,15 +69,24 @@ async function zeigeRoute(auftrag) {
   }
 }
 
+let letzterBereich = null;
+
 function passeAusschnittAn(bereich) {
-  const blatt = document.getElementById('blatt').getBoundingClientRect();
+  letzterBereich = bereich;
+  const masse = document.getElementById('blatt').getBoundingClientRect();
   const seitlich = window.innerWidth >= 720;
   karte.fitBounds(bereich, {
-    paddingTopLeft: [seitlich ? blatt.right + 24 : 40, 90],
-    paddingBottomRight: [40, seitlich ? 40 : blatt.height + 24],
+    paddingTopLeft: [seitlich ? masse.right + 24 : 40, 90],
+    paddingBottomRight: [40, seitlich ? 40 : masse.height + 24],
     maxZoom: 16
   });
 }
+
+const blatt = blattEinrichten(
+  document.getElementById('blatt'),
+  document.querySelector('.blatt-griff')
+);
+blatt.beiHoehenwechsel(() => { if (letzterBereich) passeAusschnittAn(letzterBereich); });
 
 /* ---------- Elemente ---------- */
 const el = id => document.getElementById(id);
@@ -91,31 +100,41 @@ function zeigeSchritt(name) {
 }
 
 /* ---------- Anmeldung ---------- */
-el('zugangForm').addEventListener('submit', e => {
+el('zugangForm').addEventListener('submit', async e => {
   e.preventDefault();
-  const fahrer = fahrerPruefen(el('codeFeld').value);
-  if (!fahrer) {
-    el('codeFehler').textContent = 'Dieser Code ist uns nicht bekannt. Bitte prüfe die Schreibweise.';
+  const knopf = e.target.querySelector('button[type=submit]');
+  knopf.disabled = true;
+  try {
+    const fahrer = await fahrerAnmelden(el('codeFeld').value);
+    if (!fahrer) {
+      el('codeFehler').textContent = 'Dieser Code ist uns nicht bekannt. Bitte prüfe die Schreibweise.';
+      el('codeFehler').hidden = false;
+      return;
+    }
+    el('codeFehler').hidden = true;
+    anmelden(fahrer);
+  } catch (fehler) {
+    el('codeFehler').textContent = fehler.message;
     el('codeFehler').hidden = false;
-    return;
+  } finally {
+    knopf.disabled = false;
   }
-  el('codeFehler').hidden = true;
-  anmelden(fahrer);
 });
 
 function anmelden(fahrer) {
   zustand.fahrer = fahrer;
-  try { localStorage.setItem(GEMERKT, fahrer.id); } catch (e) { /* privater Modus */ }
   el('fahrerName').textContent = fahrer.name;
   el('fahrerAuto').textContent = `${fahrer.modell} · ${fahrer.kennzeichen}`;
   zeichneAlles();
 }
 
 el('abmeldenKnopf').addEventListener('click', () => {
+  // Die Bindung Gerät↔Fahrer bleibt in der Datenbank bestehen; hier wird nur
+  // die Ansicht zurückgesetzt. Ein erneuter Code-Eingabe holt sie wieder.
   zustand.fahrer = null;
   zustand.verfuegbar = false;
   zustand.fahrtId = null;
-  try { localStorage.removeItem(GEMERKT); } catch (e) { /* egal */ }
+  positionStoppen();
   karteLeeren();
   karte.setView(WIEN, 12);
   el('codeFeld').value = '';
@@ -148,6 +167,34 @@ function standortHolen() {
     () => { /* abgelehnt oder nicht verfügbar – kein Hinweis, kein Drama */ },
     { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
   );
+}
+
+/* ---------- Position während der Fahrt senden ----------
+   Läuft nur, solange eine Fahrt aktiv ist. Ein Dauerlauf im Hintergrund
+   zieht den Akku leer und der Fahrer merkt es erst am Abend. */
+let positionWache = null;
+let letzteMeldung = 0;
+const MELDE_ABSTAND = 5000;   // Millisekunden
+
+function positionStarten(fahrtId) {
+  if (!navigator.geolocation || positionWache !== null) return;
+  positionWache = navigator.geolocation.watchPosition(
+    pos => {
+      const jetzt = Date.now();
+      if (jetzt - letzteMeldung < MELDE_ABSTAND) return;
+      letzteMeldung = jetzt;
+      positionSenden(fahrtId, pos.coords.latitude, pos.coords.longitude);
+    },
+    fehler => console.warn('Standort während der Fahrt:', fehler.message),
+    { enableHighAccuracy: true, maximumAge: 4000, timeout: 15000 }
+  );
+}
+
+function positionStoppen() {
+  if (positionWache === null) return;
+  navigator.geolocation.clearWatch(positionWache);
+  positionWache = null;
+  letzteMeldung = 0;
 }
 
 /* ---------- Auftragsliste ---------- */
@@ -244,7 +291,7 @@ el('auftraege').addEventListener('click', async e => {
   knopf.disabled = true;
   knopf.textContent = 'Wird übernommen …';
   try {
-    const auftrag = await auftragAnnehmen(knopf.dataset.id, zustand.fahrer);
+    const auftrag = await auftragAnnehmen(knopf.dataset.id);
     zustand.fahrtId = auftrag.id;
     zeigeFahrt(auftrag);
   } catch (fehler) {
@@ -292,6 +339,7 @@ async function zeigeFahrt(auftrag) {
 
   zeigeSchritt('fahrt');
   zeigeRoute(auftrag);
+  positionStarten(auftrag.id);
 }
 
 /** Fünf Segmente für die fünf Schritte aus ABLAUF. Der Fahrer sieht damit
@@ -336,8 +384,17 @@ function zeigeAbrechnung(auftrag) {
   el('zahlartHinweis').hidden = true;
   el('fertigKnopf').disabled = true;
   document.querySelectorAll('.zahlart-knopf').forEach(k => k.classList.remove('gewaehlt'));
+
+  // Der Fahrgast hat bei der Buchung schon gesagt, wie er zahlen will.
+  // Bisher hat der Fahrer geraten.
+  const wunsch = auftrag.zahlart_wunsch;
+  el('zahlartFrage').textContent = wunsch
+    ? `Der Fahrgast wollte mit ${wunsch === 'karte' ? 'Karte' : 'bar'} zahlen. Hat das geklappt?`
+    : 'Wie hat der Fahrgast gezahlt?';
+  if (wunsch) document.querySelector(`.zahlart-knopf[data-art="${wunsch}"]`)?.classList.add('vorschlag');
   zeigeSchritt('abrechnung');
   karteLeeren();
+  positionStoppen();   // Fahrt vorbei, Standort nicht weiter mitlesen
 }
 
 document.querySelectorAll('.zahlart-knopf').forEach(knopf => {
@@ -417,10 +474,12 @@ function sicher(text) {
 }
 
 /* ---------- Start ---------- */
-(function start() {
-  let gemerkt = null;
-  try { gemerkt = localStorage.getItem(GEMERKT); } catch (e) { /* privater Modus */ }
-  const fahrer = gemerkt && fahrerPruefen(gemerkt);
-  if (fahrer) anmelden(fahrer);
-  else zeigeSchritt('zugang');
+(async function start() {
+  try {
+    const fahrer = await meinFahrer();
+    if (fahrer) { anmelden(fahrer); return; }
+  } catch (e) {
+    console.warn('Fahrer nicht ermittelbar:', e);
+  }
+  zeigeSchritt('zugang');
 })();

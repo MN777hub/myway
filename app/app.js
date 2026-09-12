@@ -6,8 +6,11 @@
      Route    OSRM
    ============================================================ */
 
-import { berechneFahrpreis, formatEuro, formatKm, istNacht } from './tarif.js';
-import { auftragAnlegen, auftragLesen, statusSetzen, beiAenderung, ZUSTAND } from './daten.js';
+import { berechneFahrpreis, aufteilung, formatEuro, formatKm, istNacht } from './tarif.js';
+import { auftragAnlegen, auftragLesen, statusSetzen, bewerten, fahrtVerfolgen, beiAenderung, ZUSTAND, ABLAUF } from './daten.js';
+import { entfernung, fahrzeitMinuten } from './geo.js';
+import { bewegeMarker, kurs as kursWinkel } from './bewegung.js';
+import { blattEinrichten } from './blatt.js';
 
 const WIEN = [48.2082, 16.3738];
 
@@ -16,8 +19,12 @@ const zustand = {
   ziel: null,
   route: null,   // { km, minuten, linie }
   aktivesFeld: null,
-  auftragId: null
+  auftragId: null,
+  zahlartWunsch: 'karte',
+  merkModus: null   // 'zuhause' | 'arbeit', während ein Ort gemerkt wird
 };
+
+const ORTE_SCHLUESSEL = 'myway_orte';
 
 /* ---------- Karte ---------- */
 const karte = L.map('karte', {
@@ -54,7 +61,18 @@ const el = {
   streckeZeile: document.getElementById('streckeZeile'),
   preisWert: document.getElementById('preisWert'),
   ankunftZeit: document.getElementById('ankunftZeit'),
+  ankunftLive: document.getElementById('ankunftLive'),
   warteHinweis: document.getElementById('warteHinweis'),
+  anteilZeile: document.getElementById('anteilZeile'),
+  fgFortschritt: document.getElementById('fahrgastFortschritt'),
+  fgSpur: document.getElementById('fgFortschrittSpur'),
+  fgZaehler: document.getElementById('fgFortschrittZaehler'),
+  fahrtAktionen: document.getElementById('fahrtAktionen'),
+  anrufKnopf: document.getElementById('anrufKnopf'),
+  teilenKnopf: document.getElementById('teilenKnopf'),
+  bewertung: document.getElementById('bewertung'),
+  sterne: document.getElementById('sterne'),
+  bewertungDank: document.getElementById('bewertungDank'),
   preisDetails: document.getElementById('preisDetails'),
   preisAufklappen: document.getElementById('preisAufklappen'),
   buchenKnopf: document.getElementById('buchenKnopf'),
@@ -165,14 +183,21 @@ function passeAusschnittAn(bereich) {
   });
 }
 
-/* Das Blatt wächst, wenn die Preisdetails aufklappen. Ohne das hier blieb
-   die Route dahinter liegen und von der Karte war nur ein Streifen übrig. */
+/* Das Blatt lässt sich ziehen und wächst beim Aufklappen der Preisdetails.
+   Beides ändert die Höhe – danach muss die Karte neu eingepasst werden,
+   aber erst danach: währenddessen würde sie in jedem Bild neu rechnen. */
+const blatt = blattEinrichten(
+  document.getElementById('blatt'),
+  document.querySelector('.blatt-griff')
+);
+blatt.beiHoehenwechsel(() => { if (letzterBereich) passeAusschnittAn(letzterBereich); });
+
 if ('ResizeObserver' in window) {
   let warten = null;
   new ResizeObserver(() => {
     if (!letzterBereich) return;
     clearTimeout(warten);
-    warten = setTimeout(() => passeAusschnittAn(letzterBereich), 120);
+    warten = setTimeout(() => passeAusschnittAn(letzterBereich), 180);
   }).observe(document.getElementById('blatt'));
 }
 
@@ -230,6 +255,12 @@ function zeigePreis() {
   el.preisWert.textContent = formatEuro(preis.gesamt);
   el.ankunftZeit.textContent = 'ca. ' + ankunftszeit(minuten);
 
+  // Offen hinschreiben, was beim Fahrer bleibt. Genau das verschweigt Uber.
+  const anteil = aufteilung(preis.gesamt);
+  el.anteilZeile.innerHTML =
+    `Von deinen ${formatEuro(preis.gesamt)} bekommt dein Fahrer ` +
+    `<strong>${formatEuro(anteil.fahrer)}</strong>. MyWay behält ${formatEuro(anteil.myway)}.`;
+
   const a = preis.aufschluesselung;
   el.preisDetails.innerHTML = `
     <dt>Grundbetrag</dt><dd>${formatEuro(a.grundbetrag)}</dd>
@@ -250,6 +281,8 @@ function zeigeSchritt(name) {
   el.schrittZiel.hidden = name !== 'ziel';
   el.schrittPreis.hidden = name !== 'preis';
   el.schrittFertig.hidden = name !== 'fertig';
+  document.getElementById('schritt-verfolgen').hidden = name !== 'verfolgen';
+  document.querySelector('.seiten-wechsel').hidden = name === 'verfolgen';
 }
 
 function zeigeLaden(text) {
@@ -299,6 +332,24 @@ function aktualisiereLoeschKnoepfe() {
 el.schnellziele.addEventListener('click', async e => {
   const knopf = e.target.closest('.schnellziel');
   if (!knopf) return;
+
+  // Zuhause und Arbeit: gesetzt ist es ein Ziel, ungesetzt merkt es sich
+  // das, was gerade im Zielfeld steht.
+  if (knopf.dataset.merk) {
+    const gemerkt = orteLesen()[knopf.dataset.merk];
+    if (gemerkt) {
+      zustand.aktivesFeld = 'ziel';
+      waehleOrt(gemerkt);
+      return;
+    }
+    if (!zustand.ziel) {
+      zeigeFehler(`Gib zuerst ein Ziel ein, dann merke ich es als „${knopf.textContent.trim()}".`);
+      return;
+    }
+    ortSchreiben(knopf.dataset.merk, zustand.ziel);
+    return;
+  }
+
   zustand.aktivesFeld = 'ziel';
   el.zielFeld.value = knopf.dataset.ziel;
   aktualisiereLoeschKnoepfe();
@@ -326,7 +377,8 @@ el.buchenKnopf.addEventListener('click', async () => {
       start: zustand.start, ziel: zustand.ziel,
       km: zustand.route.km, minuten: zustand.route.minuten,
       preis: berechneFahrpreis(zustand.route.km, { funk: true }).gesamt,
-      nacht: istNacht()
+      nacht: istNacht(),
+      zahlartWunsch: zustand.zahlartWunsch
     });
     zustand.auftragId = auftrag.id;
     zeichneAuftragszustand(auftrag);
@@ -340,11 +392,75 @@ el.buchenKnopf.addEventListener('click', async () => {
 });
 
 /* ---------- Was macht mein Auftrag gerade? ---------- */
+
+/* Das Auto des Fahrers. Ein eigener Marker, damit Start und Ziel bleiben,
+   wo sie sind. */
+let autoMarke = null;
+let bewegungAbbrechen = null;
+let letzteAutoPos = null;
+
+function zeigeAuto(pos) {
+  if (!pos) return;
+  const winkel = letzteAutoPos ? kursWinkel(letzteAutoPos, pos) : 0;
+  letzteAutoPos = pos;
+
+  if (!autoMarke) {
+    autoMarke = L.marker([pos.lat, pos.lon], {
+      icon: L.divIcon({
+        className: '',
+        html: `<div class="auto-marke"><svg viewBox="0 0 24 24"><path d="M12 2l7 18-7-4-7 4z" fill="currentColor"/></svg></div>`,
+        iconSize: [34, 34], iconAnchor: [17, 17]
+      }),
+      keyboard: false, zIndexOffset: 1000
+    }).addTo(karte);
+  } else {
+    bewegungAbbrechen?.();
+    bewegungAbbrechen = bewegeMarker(autoMarke, pos);
+  }
+  const zeichen = autoMarke.getElement()?.querySelector('.auto-marke');
+  if (zeichen) zeichen.style.rotate = `${winkel}deg`;
+}
+
+function autoEntfernen() {
+  bewegungAbbrechen?.();
+  autoMarke?.remove();
+  autoMarke = null; letzteAutoPos = null; bewegungAbbrechen = null;
+}
+
+/** Wie lange noch, bis der Fahrer da ist? */
+function zeigeLiveAnkunft(auftrag) {
+  const pos = auftrag.fahrer_pos;
+  const vorEinstieg = ['angenommen', 'unterwegs', 'beim_fahrgast'].includes(auftrag.status);
+  if (!pos || !vorEinstieg || auftrag.status === 'beim_fahrgast') {
+    el.ankunftLive.hidden = auftrag.status !== 'beim_fahrgast';
+    if (auftrag.status === 'beim_fahrgast') {
+      el.ankunftLive.textContent = `${auftrag.fahrer?.name ?? 'Dein Fahrer'} wartet vor Ort.`;
+    }
+    return;
+  }
+  const km = entfernung(pos, auftrag.start);
+  const min = fahrzeitMinuten(km);
+  el.ankunftLive.innerHTML =
+    `${sicher(auftrag.fahrer?.name ?? 'Dein Fahrer')} ist in <strong>${min} Min</strong> da`;
+  el.ankunftLive.hidden = false;
+}
+
+function zeichneFahrgastFortschritt(status) {
+  const jetzt = ABLAUF.indexOf(status);
+  if (jetzt < 0) { el.fgFortschritt.hidden = true; return; }
+  el.fgFortschritt.hidden = false;
+  el.fgSpur.innerHTML = ABLAUF.map((_, i) =>
+    `<span class="fortschritt-teil ${i < jetzt ? 'erledigt' : i === jetzt ? 'jetzt' : ''}"></span>`
+  ).join('');
+  el.fgZaehler.textContent = `Schritt ${jetzt + 1} von ${ABLAUF.length}`;
+}
+
 function zeichneAuftragszustand(auftrag) {
   const fahrer = auftrag.fahrer;
   const wartet = auftrag.status === 'offen';
+  const fertig = auftrag.status === 'beendet';
 
-  el.fertigTitel.textContent = wartet ? 'Anfrage ist raus' : 'Fahrer gefunden';
+  el.fertigTitel.textContent = wartet ? 'Anfrage ist raus' : fertig ? 'Angekommen' : 'Fahrer gefunden';
   el.fertigZeichen.classList.toggle('sucht', wartet);
 
   el.fertigText.innerHTML = `
@@ -356,13 +472,28 @@ function zeichneAuftragszustand(auftrag) {
           <span class="fahrer-autozeile">${sicher(fahrer.modell)} · ${sicher(fahrer.kennzeichen)}</span>
         </span>
       </div>` : ''}
-    <p class="fahrgast-zustand${auftrag.status === 'beendet' ? ' fertig' : ''}">
+    <p class="fahrgast-zustand${fertig ? ' fertig' : ''}">
       ${sicher(ZUSTAND[auftrag.status].fahrgast)}
     </p>
     <p class="fahrt-nummer">Auftragsnummer ${sicher(auftrag.id)}</p>`;
 
+  zeichneFahrgastFortschritt(auftrag.status);
+  zeigeLiveAnkunft(auftrag);
+  zeigeAuto(auftrag.fahrer_pos);
+
+  // Anrufen und Teilen ergeben nur Sinn, solange die Fahrt läuft
+  const laeuft = fahrer && !fertig && auftrag.status !== 'storniert';
+  el.fahrtAktionen.hidden = !laeuft;
+  if (laeuft) {
+    el.anrufKnopf.href = fahrer.telefon ? `tel:${fahrer.telefon.replace(/\s/g, '')}` : '#';
+    el.anrufKnopf.hidden = !fahrer.telefon;
+  }
+
+  el.bewertung.hidden = !fertig || auftrag.bewertung != null;
+  if (fertig) autoEntfernen();
+
   el.warteHinweis.hidden = !wartet;
-  el.neueFahrtKnopf.textContent = auftrag.status === 'beendet' ? 'Neue Fahrt' : 'Fahrt abbrechen';
+  el.neueFahrtKnopf.textContent = fertig ? 'Neue Fahrt' : 'Fahrt abbrechen';
 }
 
 // Der Fahrer schaltet weiter – der Fahrgast sieht es ohne Neuladen
@@ -383,6 +514,9 @@ el.neueFahrtKnopf.addEventListener('click', async () => {
   el.startFeld.value = el.zielFeld.value = '';
   startMarke?.remove(); zielMarke?.remove(); routenLinie?.remove();
   startMarke = zielMarke = routenLinie = null;
+  autoEntfernen();
+  el.bewertungDank.hidden = true;
+  [...el.sterne.children].forEach(s => { s.classList.remove('voll'); s.setAttribute('aria-checked', 'false'); });
   karte.setView(WIEN, 13);
   aktualisiereLoeschKnoepfe();
   zeigeSchritt('ziel');
@@ -433,11 +567,163 @@ navigator.permissions?.query({ name: 'geolocation' })
   .then(recht => { if (recht.state === 'granted') standortUebernehmen(true); })
   .catch(() => { /* Safari kennt die Abfrage nicht – dann eben nicht */ });
 
+/* ---------- Zahlungsmittel ---------- */
+document.querySelectorAll('.zahlart-knopf[data-wunsch]').forEach(knopf => {
+  knopf.addEventListener('click', () => {
+    document.querySelectorAll('.zahlart-knopf[data-wunsch]')
+      .forEach(k => k.classList.remove('gewaehlt'));
+    knopf.classList.add('gewaehlt');
+    zustand.zahlartWunsch = knopf.dataset.wunsch;
+  });
+});
+
+/* ---------- Fahrt teilen ----------
+   Der Link führt auf eine abgespeckte Sicht: Status, Fahrer, Position.
+   Kein Preis, kein Ziel – wer ihn bekommt, soll sehen dass jemand gut
+   ankommt, und nicht wohin und für wie viel. */
+el.teilenKnopf.addEventListener('click', async () => {
+  const auftrag = await auftragLesen(zustand.auftragId);
+  if (!auftrag) return;
+  const adresse = new URL(location.href);
+  adresse.search = `?fahrt=${auftrag.id}&s=${auftrag.geheimnis}`;
+  const text = `Ich bin mit MyWay unterwegs. Hier kannst du mitschauen:`;
+
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: 'Meine MyWay-Fahrt', text, url: adresse.toString() });
+    } else {
+      await navigator.clipboard.writeText(adresse.toString());
+      el.teilenKnopf.classList.add('erledigt');
+      el.teilenKnopf.lastChild.textContent = ' Link kopiert';
+      setTimeout(() => {
+        el.teilenKnopf.classList.remove('erledigt');
+        el.teilenKnopf.lastChild.textContent = ' Fahrt teilen';
+      }, 2500);
+    }
+  } catch (e) {
+    // Abgebrochenes Teilen ist kein Fehler
+    if (e.name !== 'AbortError') console.warn('Teilen:', e);
+  }
+});
+
+/* ---------- Bewertung ---------- */
+el.sterne.innerHTML = [1, 2, 3, 4, 5].map(n =>
+  `<button class="stern" data-note="${n}" role="radio" aria-checked="false"
+           aria-label="${n} von 5 Sternen">
+    <svg viewBox="0 0 24 24"><path d="M12 2l3 6.6 7 .9-5.1 4.9 1.3 7L12 18l-6.2 3.4 1.3-7L2 9.5l7-.9z"
+      fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+  </button>`).join('');
+
+el.sterne.addEventListener('click', async e => {
+  const knopf = e.target.closest('.stern');
+  if (!knopf) return;
+  const note = Number(knopf.dataset.note);
+  [...el.sterne.children].forEach((s, i) => {
+    s.classList.toggle('voll', i < note);
+    s.setAttribute('aria-checked', String(i + 1 === note));
+  });
+  try {
+    await bewerten(zustand.auftragId, note);
+    el.bewertungDank.hidden = false;
+  } catch (fehler) {
+    el.bewertungDank.textContent = fehler.message;
+    el.bewertungDank.hidden = false;
+  }
+});
+
+/* ---------- Gemerkte Orte ----------
+   Zuhause und Arbeit liegen nur auf dem Gerät. Sie gehen niemanden sonst
+   etwas an und brauchen dafür keinen Platz in der Datenbank. */
+function orteLesen() {
+  try { return JSON.parse(localStorage.getItem(ORTE_SCHLUESSEL) || '{}'); }
+  catch (e) { return {}; }
+}
+function ortSchreiben(art, ort) {
+  const alle = orteLesen();
+  alle[art] = ort;
+  try { localStorage.setItem(ORTE_SCHLUESSEL, JSON.stringify(alle)); } catch (e) { /* privater Modus */ }
+  zeichneMerkChips();
+}
+function zeichneMerkChips() {
+  const alle = orteLesen();
+  document.querySelectorAll('.merkbar').forEach(chip => {
+    const ort = alle[chip.dataset.merk];
+    chip.classList.toggle('gesetzt', Boolean(ort));
+    chip.title = ort ? ort.name : 'Noch nicht gesetzt – tippen, um das aktuelle Ziel zu merken';
+  });
+}
+zeichneMerkChips();
+
+/* ---------- Geteilter Link: nur mitschauen ----------
+   Kein Realtime hier: Wer den Link öffnet, ist nicht der Fahrgast und darf
+   die Zeile gar nicht lesen. Die abgespeckte Sicht kommt über eine Funktion,
+   die das Geheimnis aus dem Link prüft – also wird gepollt. */
+async function verfolgenStarten(id, geheimnis) {
+  zeigeSchritt('verfolgen');
+  document.querySelector('.kopf').classList.add('nur-marke');
+
+  const zeichnen = async () => {
+    let fahrt;
+    try {
+      fahrt = await fahrtVerfolgen(id, geheimnis);
+    } catch (e) {
+      document.getElementById('vfStatus').textContent = 'Diese Fahrt ist nicht abrufbar.';
+      return false;
+    }
+    if (!fahrt) {
+      document.getElementById('vfStatus').textContent =
+        'Diese Fahrt gibt es nicht oder der Link stimmt nicht.';
+      return false;
+    }
+
+    const jetzt = ABLAUF.indexOf(fahrt.status);
+    document.getElementById('vfSpur').innerHTML = ABLAUF.map((_, i) =>
+      `<span class="fortschritt-teil ${i < jetzt ? 'erledigt' : i === jetzt ? 'jetzt' : ''}"></span>`
+    ).join('');
+    document.getElementById('vfZaehler').textContent =
+      jetzt >= 0 ? `Schritt ${jetzt + 1} von ${ABLAUF.length}` : '';
+    document.getElementById('vfStatus').textContent = ZUSTAND[fahrt.status]?.text ?? '';
+
+    document.getElementById('vfFahrer').innerHTML = fahrt.fahrer ? `
+      <div class="fahrer-karte">
+        <span class="fahrer-bild" aria-hidden="true">${sicher(fahrt.fahrer.name[0])}</span>
+        <span class="fahrer-daten">
+          <span class="fahrer-namenszeile">${sicher(fahrt.fahrer.name)}</span>
+          <span class="fahrer-autozeile">${sicher(fahrt.fahrer.modell)} · ${sicher(fahrt.fahrer.kennzeichen)}</span>
+        </span>
+      </div>` : '<p class="warte-hinweis">Es sucht noch ein Fahrer.</p>';
+
+    if (fahrt.fahrer_pos) {
+      zeigeAuto(fahrt.fahrer_pos);
+      const start = { lat: Number(fahrt.start.lat), lon: Number(fahrt.start.lon) };
+      setzeMarke({ ...start, name: 'Abholung' }, 'start');
+      passeAusschnittAn(L.latLngBounds(
+        [fahrt.fahrer_pos.lat, fahrt.fahrer_pos.lon], [start.lat, start.lon]));
+    }
+    return !['beendet', 'storniert'].includes(fahrt.status);
+  };
+
+  if (await zeichnen()) {
+    const takt = setInterval(async () => {
+      if (!await zeichnen()) clearInterval(takt);
+    }, 5000);
+  }
+}
+
 /* ---------- Hilfsfunktion ---------- */
 function sicher(text) {
   return String(text).replace(/[&<>"']/g, z =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[z]));
 }
+
+/* ---------- Start ----------
+   Führt ein geteilter Link hierher, wird gar nicht erst die Buchung
+   aufgebaut – der Besucher will mitschauen, nicht bestellen. */
+(function start() {
+  const p = new URLSearchParams(location.search);
+  const id = p.get('fahrt'), geheimnis = p.get('s');
+  if (id && geheimnis) verfolgenStarten(id, geheimnis);
+})();
 
 // Klick außerhalb schließt die Vorschläge
 document.addEventListener('click', e => {
