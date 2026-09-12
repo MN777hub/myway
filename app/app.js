@@ -6,7 +6,7 @@
      Route    OSRM
    ============================================================ */
 
-import { berechneFahrpreis, formatEuro, istNacht } from './tarif.js';
+import { berechneFahrpreis, formatEuro, formatKm, istNacht } from './tarif.js';
 import { auftragAnlegen, auftragLesen, statusSetzen, beiAenderung, ZUSTAND } from './daten.js';
 
 const WIEN = [48.2082, 16.3738];
@@ -53,6 +53,8 @@ const el = {
   schrittFertig: document.getElementById('schritt-fertig'),
   streckeZeile: document.getElementById('streckeZeile'),
   preisWert: document.getElementById('preisWert'),
+  ankunftZeit: document.getElementById('ankunftZeit'),
+  warteHinweis: document.getElementById('warteHinweis'),
   preisDetails: document.getElementById('preisDetails'),
   preisAufklappen: document.getElementById('preisAufklappen'),
   buchenKnopf: document.getElementById('buchenKnopf'),
@@ -150,7 +152,10 @@ function waehleOrt(ort) {
 
 /* Route so einpassen, dass sie nicht hinter dem Bedienfeld verschwindet.
    Am Handy liegt das Blatt unten, ab 720 px links daneben. */
+let letzterBereich = null;
+
 function passeAusschnittAn(bereich) {
+  letzterBereich = bereich;
   const blatt = document.getElementById('blatt').getBoundingClientRect();
   const seitlich = window.innerWidth >= 720;
   karte.fitBounds(bereich, {
@@ -158,6 +163,17 @@ function passeAusschnittAn(bereich) {
     paddingBottomRight: [40, seitlich ? 40 : blatt.height + 24],
     maxZoom: 16
   });
+}
+
+/* Das Blatt wächst, wenn die Preisdetails aufklappen. Ohne das hier blieb
+   die Route dahinter liegen und von der Karte war nur ein Streifen übrig. */
+if ('ResizeObserver' in window) {
+  let warten = null;
+  new ResizeObserver(() => {
+    if (!letzterBereich) return;
+    clearTimeout(warten);
+    warten = setTimeout(() => passeAusschnittAn(letzterBereich), 120);
+  }).observe(document.getElementById('blatt'));
 }
 
 /* ---------- Route (OSRM) ---------- */
@@ -195,18 +211,29 @@ async function berechneRoute() {
 }
 
 /* ---------- Preis ---------- */
+
+/** Wann ist der Fahrgast da? Fahrzeit plus ein Puffer für die Anfahrt.
+    Bewusst mit „ca." beschriftet – niemand kann das auf die Minute wissen. */
+function ankunftszeit(fahrminuten) {
+  const ANFAHRT_PUFFER = 6;
+  const an = new Date(Date.now() + (fahrminuten + ANFAHRT_PUFFER) * 60000);
+  return an.toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' });
+}
+
 function zeigePreis() {
   const { km, minuten } = zustand.route;
   const preis = berechneFahrpreis(km, { funk: true });
 
-  el.streckeZeile.textContent =
-    `${km.toFixed(1)} km · etwa ${Math.round(minuten)} Minuten${preis.nacht ? ' · Nachttarif' : ''}`;
+  el.streckeZeile.innerHTML =
+    `<span>${formatKm(km)} km · etwa ${Math.round(minuten)} Minuten</span>` +
+    (preis.nacht ? '<span class="tarif-marke">Nachttarif</span>' : '');
   el.preisWert.textContent = formatEuro(preis.gesamt);
+  el.ankunftZeit.textContent = 'ca. ' + ankunftszeit(minuten);
 
   const a = preis.aufschluesselung;
   el.preisDetails.innerHTML = `
     <dt>Grundbetrag</dt><dd>${formatEuro(a.grundbetrag)}</dd>
-    <dt>Strecke (${km.toFixed(1)} km)</dt><dd>${formatEuro(a.strecke)}</dd>
+    <dt>Strecke (${formatKm(km)} km)</dt><dd>${formatEuro(a.strecke)}</dd>
     ${a.funkzuschlag ? `<dt>Bestellzuschlag</dt><dd>${formatEuro(a.funkzuschlag)}</dd>` : ''}
     <dt><strong>Gesamt</strong></dt><dd><strong>${formatEuro(preis.gesamt)}</strong></dd>
     <p class="quelle">Berechnet nach dem amtlichen Wiener Taxitarif
@@ -334,6 +361,7 @@ function zeichneAuftragszustand(auftrag) {
     </p>
     <p class="fahrt-nummer">Auftragsnummer ${sicher(auftrag.id)}</p>`;
 
+  el.warteHinweis.hidden = !wartet;
   el.neueFahrtKnopf.textContent = auftrag.status === 'beendet' ? 'Neue Fahrt' : 'Fahrt abbrechen';
 }
 
@@ -361,8 +389,17 @@ el.neueFahrtKnopf.addEventListener('click', async () => {
 });
 
 /* ---------- Eigener Standort ---------- */
-el.standortKnopf.addEventListener('click', () => {
-  if (!navigator.geolocation) { zeigeFehler('Standort wird von diesem Gerät nicht unterstützt.'); return; }
+
+/**
+ * Standort holen und als Startadresse eintragen.
+ * @param {boolean} leise  true = im Hintergrund, ohne Fehlermeldung und
+ *                         ohne dem Fahrgast den Fokus wegzunehmen.
+ */
+function standortUebernehmen(leise = false) {
+  if (!navigator.geolocation) {
+    if (!leise) zeigeFehler('Standort wird von diesem Gerät nicht unterstützt.');
+    return;
+  }
   el.standortKnopf.classList.add('aktiv');
   navigator.geolocation.getCurrentPosition(
     pos => {
@@ -376,15 +413,25 @@ el.standortKnopf.addEventListener('click', () => {
       karte.setView([ort.lat, ort.lon], 15);
       aktualisiereLoeschKnoepfe();
       el.standortKnopf.classList.remove('aktiv');
-      if (zustand.ziel) berechneRoute(); else el.zielFeld.focus();
+      if (zustand.ziel) berechneRoute();
+      else if (!leise) el.zielFeld.focus();
     },
     () => {
       el.standortKnopf.classList.remove('aktiv');
-      zeigeFehler('Standort nicht verfügbar. Bitte Adresse eingeben.');
+      if (!leise) zeigeFehler('Standort nicht verfügbar. Bitte Adresse eingeben.');
     },
     { enableHighAccuracy: true, timeout: 8000 }
   );
-});
+}
+
+el.standortKnopf.addEventListener('click', () => standortUebernehmen(false));
+
+/* Wer den Standort schon einmal freigegeben hat, will ihn nicht bei jedem
+   Aufruf erneut antippen. Nur bei bereits erteilter Freigabe – ein
+   ungefragter Rechtedialog beim ersten Öffnen wäre übergriffig. */
+navigator.permissions?.query({ name: 'geolocation' })
+  .then(recht => { if (recht.state === 'granted') standortUebernehmen(true); })
+  .catch(() => { /* Safari kennt die Abfrage nicht – dann eben nicht */ });
 
 /* ---------- Hilfsfunktion ---------- */
 function sicher(text) {

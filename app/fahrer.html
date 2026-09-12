@@ -27,7 +27,9 @@
     <span class="marke-name">MyWay</span>
     <span class="marke-zusatz">Fahrer</span>
   </div>
-  <button class="abmelden-knopf" id="abmeldenKnopf" hidden>Abmelden</button>
+  <button class="abmelden-knopf" id="abmeldenKnopf" hidden aria-label="Abmelden" title="Abmelden">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 17l5-5-5-5M21 12H9M12 3H6a2 2 0 00-2 2v14a2 2 0 002 2h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
 </header>
 
 <main class="blatt" id="blatt">
@@ -54,10 +56,8 @@
   <!-- Bereit: Aufträge -->
   <section class="schritt" id="schritt-bereit" hidden aria-labelledby="titel-bereit">
     <div class="fahrer-kopf">
-      <div>
-        <h1 class="titel" id="titel-bereit">Hallo <span id="fahrerName">–</span></h1>
-        <p class="strecke-zeile" id="fahrerAuto">–</p>
-      </div>
+      <h1 class="titel" id="titel-bereit">Hallo <span id="fahrerName">–</span></h1>
+      <p class="fahrer-auto" id="fahrerAuto">–</p>
       <button class="verfuegbar-schalter" id="verfuegbarSchalter"
               role="switch" aria-checked="false">
         <span class="schalter-lampe" aria-hidden="true"></span>
@@ -65,19 +65,15 @@
       </button>
     </div>
 
-    <div class="verdienst-zeile" id="verdienstZeile">
-      <div class="verdienst-teil">
-        <span class="verdienst-wert" id="wertFahrten">0</span>
-        <span class="verdienst-label" id="labelFahrten">Fahrten heute</span>
+    <div class="verdienst" id="verdienstZeile">
+      <div class="verdienst-hero">
+        <span class="hero-wert" id="wertGespart">€ 0,00</span>
+        <span class="hero-label">heute mehr als bei Uber</span>
       </div>
-      <div class="verdienst-teil">
-        <span class="verdienst-wert" id="wertVerdienst">€ 0,00</span>
-        <span class="verdienst-label">Verdient</span>
-      </div>
-      <div class="verdienst-teil">
-        <span class="verdienst-wert hervor" id="wertGespart">€ 0,00</span>
-        <span class="verdienst-label">Mehr als bei Uber</span>
-      </div>
+      <p class="verdienst-fuss">
+        <span><strong id="wertFahrten">0</strong> <span id="labelFahrten">Fahrten heute</span></span>
+        <span><strong id="wertVerdienst">€ 0,00</strong> verdient</span>
+      </p>
     </div>
 
     <h2 class="unter-titel">Anfragen</h2>
@@ -89,6 +85,10 @@
     <div class="fahrt-kopf">
       <span class="zustand-marke" id="zustandMarke">Angenommen</span>
       <span class="fahrt-nummer" id="fahrtNummer">–</span>
+    </div>
+    <div class="fortschritt">
+      <div class="fortschritt-spur" id="fortschrittSpur"></div>
+      <span class="fortschritt-zaehler" id="fortschrittZaehler">–</span>
     </div>
     <h1 class="titel" id="titel-fahrt">Deine Fahrt</h1>
 

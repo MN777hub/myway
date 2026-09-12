@@ -85,6 +85,10 @@
         <span class="preis-label">Festpreis</span>
         <strong class="preis-wert" id="preisWert">–</strong>
       </div>
+      <p class="preis-ankunft">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v5l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Ankunft <strong id="ankunftZeit">–</strong></span>
+      </p>
       <button class="preis-aufklappen" id="preisAufklappen" aria-expanded="false" aria-controls="preisDetails">
         Wie kommt der Preis zustande?
       </button>
@@ -106,6 +110,10 @@
     </div>
     <h2 class="titel" id="titel-fertig">Anfrage ist raus</h2>
     <div class="fertig-text" id="fertigText"></div>
+    <p class="warte-hinweis" id="warteHinweis" hidden>
+      Deine Anfrage liegt bei allen Fahrern, die gerade verfügbar sind.
+      Sobald jemand übernimmt, siehst du das hier.
+    </p>
     <button class="haupt-knopf zweit" id="neueFahrtKnopf">Neue Fahrt</button>
   </section>
 

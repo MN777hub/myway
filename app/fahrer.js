@@ -3,7 +3,8 @@
    Aufträge sehen, annehmen, Fahrt abwickeln, Verdienst sehen.
    ============================================================ */
 
-import { berechneFahrpreis, aufteilung, vergleich, formatEuro } from './tarif.js';
+import { berechneFahrpreis, aufteilung, vergleich, formatEuro, formatKm } from './tarif.js';
+import { entfernung, fahrzeitMinuten } from './geo.js';
 import {
   ZUSTAND, ABLAUF, fahrerPruefen, beiAenderung,
   offeneAuftraege, auftragAnnehmen, statusSetzen,
@@ -16,7 +17,8 @@ const GEMERKT = 'myway_fahrer';
 const zustand = {
   fahrer: null,
   verfuegbar: false,
-  fahrtId: null
+  fahrtId: null,
+  standort: null   // { lat, lon }, sobald der Fahrer ihn freigibt
 };
 
 /* ---------- Karte ---------- */
@@ -127,8 +129,26 @@ el('verfuegbarSchalter').addEventListener('click', () => {
   s.setAttribute('aria-checked', String(zustand.verfuegbar));
   s.classList.toggle('an', zustand.verfuegbar);
   el('schalterText').textContent = zustand.verfuegbar ? 'Verfügbar' : 'Nicht verfügbar';
+  if (zustand.verfuegbar) standortHolen();
   zeichneAuftraege();
 });
+
+/* ---------- Standort des Fahrers ----------
+   Erst beim Verfügbar-Schalten fragen, nicht beim Öffnen der Seite: In dem
+   Moment ist der Grund offensichtlich, nämlich Anfragen in der Nähe. Wird
+   abgelehnt, bleibt alles wie vorher – die Liste sortiert dann nach
+   Wartezeit und die Entfernungszeile entfällt. */
+function standortHolen() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      zustand.standort = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      zeichneAuftraege();
+    },
+    () => { /* abgelehnt oder nicht verfügbar – kein Hinweis, kein Drama */ },
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+  );
+}
 
 /* ---------- Auftragsliste ---------- */
 async function zeichneAuftraege() {
@@ -147,8 +167,15 @@ async function zeichneAuftraege() {
     return;
   }
 
+  // Mit Standort zählt die Nähe, ohne Standort bleibt es bei der Wartezeit.
+  // Die Begründung für die Wartezeit-Reihenfolge steht in daten.js.
+  const sortiert = zustand.standort
+    ? [...offene].sort((x, y) => entfernung(zustand.standort, x.start) -
+                                 entfernung(zustand.standort, y.start))
+    : offene;
+
   liste.innerHTML = '';
-  offene.forEach(a => {
+  sortiert.forEach(a => {
     const preis = a.preis ?? berechneFahrpreis(a.km).gesamt;
     const meins = aufteilung(preis).fahrer;
     const beiUber = vergleich(preis).find(v => v.name === 'Uber').fahrer;
@@ -157,28 +184,58 @@ async function zeichneAuftraege() {
     const li = document.createElement('li');
     li.className = 'auftrag';
     li.innerHTML = `
+      ${naeheZeile(a)}
       <div class="auftrag-strecke">
-        <div class="strecke-punkt">
+        <div class="strecke-punkt mit-plz">
           <span class="punkt punkt-start" aria-hidden="true"></span>
           <span class="strecke-name">${sicher(a.start.name)}</span>
+          <span class="strecke-plz">${sicher(plz(a.start))}</span>
         </div>
         <div class="strecke-strich klein" aria-hidden="true"></div>
-        <div class="strecke-punkt">
+        <div class="strecke-punkt mit-plz">
           <span class="punkt punkt-ziel" aria-hidden="true"></span>
           <span class="strecke-name">${sicher(a.ziel.name)}</span>
+          <span class="strecke-plz">${sicher(plz(a.ziel))}</span>
         </div>
       </div>
-      <p class="auftrag-zeile">${a.km.toFixed(1)} km · etwa ${Math.round(a.minuten)} Min · Fahrpreis ${formatEuro(preis)}</p>
+      <p class="auftrag-zeile">${formatKm(a.km)} km · etwa ${Math.round(a.minuten)} Min · Fahrpreis ${formatEuro(preis)}</p>
       <div class="auftrag-geld">
-        <div>
-          <span class="auftrag-anteil">${formatEuro(meins)}</span>
-          <span class="auftrag-anteil-label">bleiben bei dir</span>
+        <span class="geld-wert">${formatEuro(meins)}</span>
+        <span class="geld-label">bleiben bei dir</span>
+        <div class="balken" aria-hidden="true">
+          <div class="balken-reihe eigen">
+            <span class="balken-name">MyWay</span>
+            <span class="balken-spur"><span class="balken-fuell myway" style="width:100%"></span></span>
+            <span class="balken-zahl">${formatEuro(meins)}</span>
+          </div>
+          <div class="balken-reihe">
+            <span class="balken-name">Uber</span>
+            <span class="balken-spur"><span class="balken-fuell uber" style="width:${Math.round(beiUber / meins * 100)}%"></span></span>
+            <span class="balken-zahl">${formatEuro(beiUber)}</span>
+          </div>
         </div>
-        <span class="auftrag-vergleich">+ ${formatEuro(mehr)} gegenüber Uber</span>
+        <p class="auftrag-vergleich">
+          Bei Uber blieben dir <strong>${formatEuro(mehr)} weniger.</strong>
+        </p>
       </div>
       <button class="haupt-knopf annehmen" data-id="${a.id}">Fahrt annehmen</button>`;
     liste.appendChild(li);
   });
+}
+
+/** Bezirk aus der Adresse, z. B. „1010". Sagt einem Wiener Fahrer mehr als
+    die Straße. Findet sich keiner, bleibt die Stelle einfach leer. */
+function plz(ort) {
+  return String(ort.ort || '').match(/\b\d{4}\b/)?.[0] || '';
+}
+
+/** „ca. 2,1 km · 6 Min zu dir" – nur mit freigegebenem Standort. */
+function naeheZeile(auftrag) {
+  if (!zustand.standort) return '';
+  const km = entfernung(zustand.standort, auftrag.start);
+  return `<p class="auftrag-naehe">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s7-6.4 7-11a7 7 0 10-14 0c0 4.6 7 11 7 11z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+    ca. ${formatKm(km)} km · ${fahrzeitMinuten(km)} Min zu dir</p>`;
 }
 
 el('auftraege').addEventListener('click', async e => {
@@ -205,11 +262,12 @@ async function zeigeFahrt(auftrag) {
 
   el('zustandMarke').textContent = ZUSTAND[auftrag.status].text;
   el('fahrtNummer').textContent = auftrag.id;
+  zeichneFortschritt(auftrag.status);
   el('fahrtStart').textContent = auftrag.start.name;
   el('fahrtStartOrt').textContent = auftrag.start.ort || '';
   el('fahrtZiel').textContent = auftrag.ziel.name;
   el('fahrtZielOrt').textContent = auftrag.ziel.ort || '';
-  el('fahrtKm').textContent = auftrag.km.toFixed(1) + ' km';
+  el('fahrtKm').textContent = formatKm(auftrag.km) + ' km';
   el('fahrtPreis').textContent = formatEuro(preis);
   el('fahrtAnteil').textContent = formatEuro(teil.fahrer);
 
@@ -234,6 +292,18 @@ async function zeigeFahrt(auftrag) {
 
   zeigeSchritt('fahrt');
   zeigeRoute(auftrag);
+}
+
+/** Fünf Segmente für die fünf Schritte aus ABLAUF. Der Fahrer sieht damit
+    nicht nur wo er steht, sondern auch wie viel noch kommt. */
+function zeichneFortschritt(status) {
+  const jetzt = ABLAUF.indexOf(status);
+  el('fortschrittSpur').innerHTML = ABLAUF.map((_, i) => {
+    const art = i < jetzt ? 'erledigt' : i === jetzt ? 'jetzt' : '';
+    return `<span class="fortschritt-teil ${art}"></span>`;
+  }).join('');
+  // Der Zustandsname steht schon groß darüber – hier reicht die Position
+  el('fortschrittZaehler').textContent = `Schritt ${jetzt + 1} von ${ABLAUF.length}`;
 }
 
 el('weiterKnopf').addEventListener('click', async () => {
@@ -309,7 +379,11 @@ async function zeichneVerdienst() {
   el('wertFahrten').textContent = fahrten.length;
   el('labelFahrten').textContent = fahrten.length === 1 ? 'Fahrt heute' : 'Fahrten heute';
   el('wertVerdienst').textContent = formatEuro(Math.round(verdient * 100) / 100);
-  el('wertGespart').textContent = '+ ' + formatEuro(Math.round(gespart * 100) / 100);
+
+  // Das Plus erst setzen, wenn es auch eines gibt – „+ € 0,00" wäre albern
+  const mehr = Math.round(gespart * 100) / 100;
+  el('wertGespart').textContent = (mehr > 0 ? '+ ' : '') + formatEuro(mehr);
+  el('verdienstZeile').classList.toggle('leer', mehr <= 0);
 }
 
 /* ---------- Gesamtbild zeichnen ---------- */
