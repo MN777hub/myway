@@ -54,7 +54,10 @@ export function blattEinrichten(blatt, griff) {
     blatt.style.transition = 'none';
   });
 
-  blatt.addEventListener('pointermove', e => {
+  /* Bewegung und Loslassen hängen am Fenster, nicht am Blatt: Beim
+     Hochziehen ist der Finger nach wenigen Pixeln über der Oberkante des
+     Blatts, und dort bekäme das Blatt keine Ereignisse mehr ab. */
+  window.addEventListener('pointermove', e => {
     if (ziehtVon === null) return;
     const weg = ziehtVon - e.clientY;           // nach oben ziehen = größer
     const neu = startHoehe + weg / fensterHoehe();
@@ -63,21 +66,17 @@ export function blattEinrichten(blatt, griff) {
     // die Geste dem Scrollen – Zug abbrechen statt dagegenzuhalten
     if (neu < startHoehe && blatt.scrollTop > 0) { ziehtVon = null; return; }
 
-    if (Math.abs(weg) > 4) {
-      blatt.setPointerCapture?.(e.pointerId);
-      e.preventDefault();
-    }
+    if (e.cancelable && Math.abs(weg) > 4) e.preventDefault();
     setzen(neu);
-  });
+  }, { passive: false });
 
-  const loslassen = e => {
+  const loslassen = () => {
     if (ziehtVon === null) return;
     ziehtVon = null;
-    blatt.releasePointerCapture?.(e.pointerId);
     einrasten();
   };
-  blatt.addEventListener('pointerup', loslassen);
-  blatt.addEventListener('pointercancel', loslassen);
+  window.addEventListener('pointerup', loslassen);
+  window.addEventListener('pointercancel', loslassen);
 
   window.addEventListener('resize', () => setzen(hoehe));
   setzen(hoehe);
